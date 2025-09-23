@@ -1,6 +1,4 @@
-import {
-  McpServer,
-} from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import QRCode from 'qrcode';
@@ -8,7 +6,9 @@ import QRCode from 'qrcode';
 // API Key Authentication
 const REQUIRED_API_KEY = process.env.MCP_API_KEY;
 if (!REQUIRED_API_KEY) {
-  console.error('Error: MCP_API_KEY environment variable is required');
+  console.error(
+    'Error: MCP_API_KEY environment variable is required'
+  );
   process.exit(1);
 }
 
@@ -28,17 +28,25 @@ server.registerTool(
   'generate-password',
   {
     title: 'Password Generator',
-    description: 'Generate secure passwords with customizable options',
-    inputSchema: { 
+    description:
+      'Generate secure passwords with customizable options',
+    inputSchema: {
       apiKey: z.string(),
       length: z.number().min(8).max(128).default(16),
       includeNumbers: z.boolean().default(true),
       includeSymbols: z.boolean().default(true),
       includeUppercase: z.boolean().default(true),
-      includeLowercase: z.boolean().default(true)
+      includeLowercase: z.boolean().default(true),
     },
   },
-  async ({ apiKey, length = 16, includeNumbers = true, includeSymbols = true, includeUppercase = true, includeLowercase = true }) => {
+  async ({
+    apiKey,
+    length = 16,
+    includeNumbers = true,
+    includeSymbols = true,
+    includeUppercase = true,
+    includeLowercase = true,
+  }) => {
     if (!validateApiKey(apiKey)) {
       return {
         content: [{ type: 'text', text: 'Error: Invalid API key' }],
@@ -49,24 +57,37 @@ server.registerTool(
     if (includeUppercase) charset += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     if (includeNumbers) charset += '0123456789';
     if (includeSymbols) charset += '!@#$%^&*()_+-=[]{}|;:,.<>?';
-    
+
     if (charset === '') {
       return {
-        content: [{ type: 'text', text: 'Error: At least one character type must be selected' }],
+        content: [
+          {
+            type: 'text',
+            text: 'Error: At least one character type must be selected',
+          },
+        ],
       };
     }
-    
+
     let password = '';
     for (let i = 0; i < length; i++) {
-      password += charset.charAt(Math.floor(Math.random() * charset.length));
+      password += charset.charAt(
+        Math.floor(Math.random() * charset.length)
+      );
     }
-    
+
     return {
       content: [
-        { 
-          type: 'text', 
-          text: `Generated password: ${password}\n\nStrength: ${length >= 16 && includeNumbers && includeSymbols ? 'Strong' : length >= 12 ? 'Medium' : 'Weak'}` 
-        }
+        {
+          type: 'text',
+          text: `Generated password: ${password}\n\nStrength: ${
+            length >= 16 && includeNumbers && includeSymbols
+              ? 'Strong'
+              : length >= 12
+              ? 'Medium'
+              : 'Weak'
+          }`,
+        },
       ],
     };
   }
@@ -77,7 +98,8 @@ server.registerTool(
   'generate-qr-data',
   {
     title: 'QR Code Data Generator',
-    description: 'Generate formatted data for QR codes (WiFi, contact, URL, etc.)',
+    description:
+      'Generate formatted data for QR codes (WiFi, contact, URL, etc.)',
     inputSchema: {
       apiKey: z.string(),
       type: z.enum(['wifi', 'contact', 'url', 'text']),
@@ -91,9 +113,9 @@ server.registerTool(
         phone: z.string().optional(),
         email: z.string().optional(),
         // URL/Text fields
-        content: z.string().optional()
-      })
-    }
+        content: z.string().optional(),
+      }),
+    },
   },
   async ({ apiKey, type, data }) => {
     if (!validateApiKey(apiKey)) {
@@ -102,15 +124,24 @@ server.registerTool(
       };
     }
     let qrString = '';
-    
+
     switch (type) {
       case 'wifi':
         if (!data.ssid) {
-          return { content: [{ type: 'text', text: 'Error: SSID is required for WiFi QR codes' }] };
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Error: SSID is required for WiFi QR codes',
+              },
+            ],
+          };
         }
-        qrString = `WIFI:T:${data.security || 'WPA'};S:${data.ssid};P:${data.password || ''};H:false;;`;
+        qrString = `WIFI:T:${data.security || 'WPA'};S:${
+          data.ssid
+        };P:${data.password || ''};H:false;;`;
         break;
-        
+
       case 'contact':
         qrString = `BEGIN:VCARD\nVERSION:3.0\n`;
         if (data.name) qrString += `FN:${data.name}\n`;
@@ -118,22 +149,22 @@ server.registerTool(
         if (data.email) qrString += `EMAIL:${data.email}\n`;
         qrString += `END:VCARD`;
         break;
-        
+
       case 'url':
         qrString = data.content || '';
         break;
-        
+
       case 'text':
         qrString = data.content || '';
         break;
     }
-    
+
     return {
       content: [
-        { 
-          type: 'text', 
-          text: `QR Code data for ${type}:\n\n${qrString}\n\nUse this text with any QR code generator tool.` 
-        }
+        {
+          type: 'text',
+          text: `QR Code data for ${type}:\n\n${qrString}\n\nUse this text with any QR code generator tool.`,
+        },
       ],
     };
   }
@@ -148,8 +179,8 @@ server.registerTool(
     inputSchema: {
       apiKey: z.string(),
       operation: z.enum(['encode', 'decode']),
-      text: z.string()
-    }
+      text: z.string(),
+    },
   },
   async ({ apiKey, operation, text }) => {
     if (!validateApiKey(apiKey)) {
@@ -159,24 +190,33 @@ server.registerTool(
     }
     try {
       let result = '';
-      
+
       if (operation === 'encode') {
-        result = btoa(unescape(encodeURIComponent(text)));
+        result = btoa(text);
       } else {
-        result = decodeURIComponent(escape(atob(text)));
+        result = atob(text);
       }
-      
+
       return {
         content: [
-          { 
-            type: 'text', 
-            text: `${operation === 'encode' ? 'Encoded' : 'Decoded'} result:\n\n${result}` 
-          }
+          {
+            type: 'text',
+            text: `${
+              operation === 'encode' ? 'Encoded' : 'Decoded'
+            } result:\n\n${result}`,
+          },
         ],
       };
     } catch (error) {
       return {
-        content: [{ type: 'text', text: `Error: Invalid ${operation === 'decode' ? 'Base64' : ''} input` }],
+        content: [
+          {
+            type: 'text',
+            text: `Error: Invalid ${
+              operation === 'decode' ? 'Base64' : ''
+            } input`,
+          },
+        ],
       };
     }
   }
@@ -188,10 +228,10 @@ server.registerTool(
   {
     title: 'UUID Generator',
     description: 'Generate UUIDs (v4) for unique identifiers',
-    inputSchema: { 
+    inputSchema: {
       apiKey: z.string(),
-      count: z.number().min(1).max(10).default(1)
-    }
+      count: z.number().min(1).max(10).default(1),
+    },
   },
   async ({ apiKey, count = 1 }) => {
     if (!validateApiKey(apiKey)) {
@@ -200,25 +240,31 @@ server.registerTool(
       };
     }
     const uuids = [];
-    
+
     for (let i = 0; i < count; i++) {
       // Simple UUID v4 generation
-      const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0;
-        const v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-      });
+      const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(
+        /[xy]/g,
+        function (c) {
+          const r = (Math.random() * 16) | 0;
+          const v = c == 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        }
+      );
       uuids.push(uuid);
     }
-    
+
     return {
       content: [
-        { 
-          type: 'text', 
-          text: count === 1 ? 
-            `Generated UUID: ${uuids[0]}` : 
-            `Generated UUIDs:\n${uuids.map((uuid, i) => `${i + 1}. ${uuid}`).join('\n')}`
-        }
+        {
+          type: 'text',
+          text:
+            count === 1
+              ? `Generated UUID: ${uuids[0]}`
+              : `Generated UUIDs:\n${uuids
+                  .map((uuid, i) => `${i + 1}. ${uuid}`)
+                  .join('\n')}`,
+        },
       ],
     };
   }
@@ -232,10 +278,15 @@ server.registerTool(
     description: 'Generate color palettes for design projects',
     inputSchema: {
       apiKey: z.string(),
-      baseColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
-      type: z.enum(['monochromatic', 'complementary', 'triadic', 'random']).default('random'),
-      count: z.number().min(3).max(10).default(5)
-    }
+      baseColor: z
+        .string()
+        .regex(/^#[0-9A-Fa-f]{6}$/)
+        .optional(),
+      type: z
+        .enum(['monochromatic', 'complementary', 'triadic', 'random'])
+        .default('random'),
+      count: z.number().min(3).max(10).default(5),
+    },
   },
   async ({ apiKey, baseColor, type = 'random', count = 5 }) => {
     if (!validateApiKey(apiKey)) {
@@ -244,11 +295,15 @@ server.registerTool(
       };
     }
     const colors = [];
-    
+
     if (type === 'random' || !baseColor) {
       // Generate random colors
       for (let i = 0; i < count; i++) {
-        const hex = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+        const hex =
+          '#' +
+          Math.floor(Math.random() * 16777215)
+            .toString(16)
+            .padStart(6, '0');
         colors.push(hex);
       }
     } else {
@@ -256,43 +311,53 @@ server.registerTool(
       const r = parseInt(baseColor.slice(1, 3), 16);
       const g = parseInt(baseColor.slice(3, 5), 16);
       const b = parseInt(baseColor.slice(5, 7), 16);
-      
+
       colors.push(baseColor); // Add base color
-      
+
       // Generate variations based on type
       for (let i = 1; i < count; i++) {
         let newR, newG, newB;
-        
+
         if (type === 'monochromatic') {
-          const factor = 0.8 + (i * 0.1);
+          const factor = 0.8 + i * 0.1;
           newR = Math.min(255, Math.floor(r * factor));
           newG = Math.min(255, Math.floor(g * factor));
           newB = Math.min(255, Math.floor(b * factor));
         } else {
           // Simple variation for other types
-          newR = Math.min(255, Math.max(0, r + (Math.random() - 0.5) * 100));
-          newG = Math.min(255, Math.max(0, g + (Math.random() - 0.5) * 100));
-          newB = Math.min(255, Math.max(0, b + (Math.random() - 0.5) * 100));
+          newR = Math.min(
+            255,
+            Math.max(0, r + (Math.random() - 0.5) * 100)
+          );
+          newG = Math.min(
+            255,
+            Math.max(0, g + (Math.random() - 0.5) * 100)
+          );
+          newB = Math.min(
+            255,
+            Math.max(0, b + (Math.random() - 0.5) * 100)
+          );
         }
-        
-        const hex = '#' + 
+
+        const hex =
+          '#' +
           Math.round(newR).toString(16).padStart(2, '0') +
           Math.round(newG).toString(16).padStart(2, '0') +
           Math.round(newB).toString(16).padStart(2, '0');
         colors.push(hex);
       }
     }
-    
-    const paletteText = colors.map((color, i) => 
-      `${i + 1}. ${color.toUpperCase()}`
-    ).join('\n');
-    
+
+    const paletteText = colors
+      .map((color, i) => `${i + 1}. ${color.toUpperCase()}`)
+      .join('\n');
+
     return {
       content: [
-        { 
-          type: 'text', 
-          text: `Generated ${type} color palette:\n\n${paletteText}\n\nCopy these hex codes for use in your design tools.`
-        }
+        {
+          type: 'text',
+          text: `Generated ${type} color palette:\n\n${paletteText}\n\nCopy these hex codes for use in your design tools.`,
+        },
       ],
     };
   }
@@ -309,10 +374,16 @@ server.registerTool(
       text: z.string(),
       format: z.enum(['png', 'svg', 'terminal']).default('png'),
       errorCorrectionLevel: z.enum(['L', 'M', 'Q', 'H']).default('M'),
-      width: z.number().min(100).max(1000).default(200)
-    }
+      width: z.number().min(100).max(1000).default(200),
+    },
   },
-  async ({ apiKey, text, format = 'png', errorCorrectionLevel = 'M', width = 200 }) => {
+  async ({
+    apiKey,
+    text,
+    format = 'png',
+    errorCorrectionLevel = 'M',
+    width = 200,
+  }) => {
     if (!validateApiKey(apiKey)) {
       return {
         content: [{ type: 'text', text: 'Error: Invalid API key' }],
@@ -321,21 +392,21 @@ server.registerTool(
 
     try {
       let result = '';
-      
+
       if (format === 'terminal') {
         // Generate ASCII QR code for terminal display
         result = await QRCode.toString(text, {
           type: 'terminal',
           errorCorrectionLevel,
-          width: Math.min(width / 10, 50) // Scale down for terminal
+          width: Math.min(width / 10, 50), // Scale down for terminal
         });
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: `QR Code for: "${text}"\n\n${result}\n\nScan this QR code with your mobile device.`
-            }
+              text: `QR Code for: "${text}"\n\n${result}\n\nScan this QR code with your mobile device.`,
+            },
           ],
         };
       } else if (format === 'svg') {
@@ -343,15 +414,15 @@ server.registerTool(
         result = await QRCode.toString(text, {
           type: 'svg',
           errorCorrectionLevel,
-          width
+          width,
         });
-        
+
         return {
           content: [
             {
               type: 'text',
-              text: `QR Code SVG for: "${text}"\n\n${result}\n\nSave this as a .svg file to use the QR code.`
-            }
+              text: `QR Code SVG for: "${text}"\n\n${result}\n\nSave this as a .svg file to use the QR code.`,
+            },
           ],
         };
       } else {
@@ -362,22 +433,49 @@ server.registerTool(
           margin: 1,
           color: {
             dark: '#000000',
-            light: '#FFFFFF'
-          }
+            light: '#FFFFFF',
+          },
         });
-        
+
+        const base64Data = result.split(',')[1]; // Remove data:image/png;base64, prefix
+
+        if (!base64Data) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Error: Failed to extract base64 data from QR code',
+              },
+            ],
+          };
+        }
+
         return {
           content: [
             {
-              type: 'text',
-              text: `QR Code generated for: "${text}"\n\nData URL (copy and paste into browser address bar to view):\n${result}\n\nYou can also save this data URL as an image file.`
-            }
+              type: 'image',
+              data: base64Data,
+              mimeType: 'image/png',
+              name: 'qr-code.png',
+              description: 'QR Code PNG',
+              size: {
+                width: 50,
+                height: 50,
+              },
+            },
           ],
         };
       }
     } catch (error) {
       return {
-        content: [{ type: 'text', text: `Error generating QR code: ${error instanceof Error ? error.message : 'Unknown error'}` }],
+        content: [
+          {
+            type: 'text',
+            text: `Error generating QR code: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`,
+          },
+        ],
       };
     }
   }
