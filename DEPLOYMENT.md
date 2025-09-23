@@ -44,8 +44,8 @@ Ensure your repository has:
 - **Runtime**: `Node`
 
 **Build & Deploy Settings:**
-- **Build Command**: `npm install`
-- **Start Command**: `npx ts-node server.ts`
+- **Build Command**: `npm run build`
+- **Start Command**: `npm start`
 
 ### 3.3 Environment Variables
 
@@ -67,7 +67,8 @@ In the "Environment" section, add:
 2. Render will automatically:
    - Clone your repository
    - Run `npm install`
-   - Start your server with `npx ts-node server.ts`
+   - Run `npm run build` (compiles TypeScript to JavaScript)
+   - Start your server with `npm start` (runs compiled server.js)
 
 ## Step 5: Verify Deployment
 
@@ -125,8 +126,9 @@ All tool calls require the `apiKey` parameter with your generated API key.
 
 **Build Failures:**
 - Check that all dependencies are in `package.json`
-- Ensure TypeScript compiles without errors locally
+- Ensure TypeScript compiles without errors locally (`npm run build`)
 - Verify Node.js version compatibility
+- Make sure `typescript` is listed in dependencies (not just devDependencies)
 
 **Runtime Errors:**
 - Check environment variables are set correctly

@@ -2,8 +2,11 @@
   "name": "ice-cream-mcp-server",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
+    "build": "npx tsc",
+    "start": "node server.js",
+    "dev": "npx ts-node server.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
