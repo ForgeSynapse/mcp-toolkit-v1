@@ -391,8 +391,13 @@ server.registerTool('generate-qr-code', {
         };
     }
 });
+console.log('Starting MCP Server...');
+console.log('Environment:', process.env.NODE_ENV);
+console.log('Render:', !!process.env.RENDER);
+console.log('API Key configured:', !!REQUIRED_API_KEY);
 // Check if running in web service mode (Render) or stdio mode (local MCP)
 if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+    console.log('Starting in HTTP mode for web deployment');
     // HTTP server for Render deployment
     const http = await import('http');
     const httpServer = http.createServer((req, res) => {
@@ -409,12 +414,17 @@ if (process.env.RENDER || process.env.NODE_ENV === 'production') {
             res.end('MCP Server is running. This is a Model Context Protocol server, not a web API.');
         }
     });
-    const port = process.env.PORT || 3000;
-    httpServer.listen(port, () => {
+    const port = parseInt(process.env.PORT || '3000', 10);
+    httpServer.listen(port, '0.0.0.0', () => {
         console.log(`HTTP server running on port ${port} for health checks`);
+    });
+    // Handle server errors
+    httpServer.on('error', (err) => {
+        console.error('HTTP server error:', err);
     });
 }
 else {
+    console.log('Starting in MCP stdio mode for local development');
     // Start receiving messages on stdin and sending messages on stdout (local MCP mode)
     const transport = new StdioServerTransport();
     await server.connect(transport);
