@@ -80,9 +80,14 @@ In the "Environment" section, add:
 ### Test Your MCP Server
 Your server will be accessible at: `https://your-service-name.onrender.com`
 
-**Note**: MCP servers use stdio transport, so they won't respond to direct HTTP requests. The deployment is successful if:
+**Note**: This MCP server runs in hybrid mode:
+- **Local development**: Uses stdio transport for MCP clients
+- **Render deployment**: Runs HTTP server for health checks and status
+
+The deployment is successful if:
 - Build completes without errors
 - Server starts without crashing
+- Health check endpoint responds at `/health`
 - No authentication errors in logs
 
 ## Environment Configuration

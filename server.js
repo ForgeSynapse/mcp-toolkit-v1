@@ -391,7 +391,32 @@ server.registerTool('generate-qr-code', {
         };
     }
 });
-// Start receiving messages on stdin and sending messages on stdout
-const transport = new StdioServerTransport();
-await server.connect(transport);
+// Check if running in web service mode (Render) or stdio mode (local MCP)
+if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+    // HTTP server for Render deployment
+    const http = await import('http');
+    const httpServer = http.createServer((req, res) => {
+        if (req.url === '/health') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                status: 'healthy',
+                server: 'productivity-toolkit-mcp',
+                tools: ['generate-password', 'generate-qr-data', 'base64-convert', 'generate-uuid', 'generate-color-palette', 'generate-qr-code']
+            }));
+        }
+        else {
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('MCP Server is running. This is a Model Context Protocol server, not a web API.');
+        }
+    });
+    const port = process.env.PORT || 3000;
+    httpServer.listen(port, () => {
+        console.log(`HTTP server running on port ${port} for health checks`);
+    });
+}
+else {
+    // Start receiving messages on stdin and sending messages on stdout (local MCP mode)
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+}
 //# sourceMappingURL=server.js.map
