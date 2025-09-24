@@ -11,4 +11,3 @@ Server running on port 3000
 - MCP Streamable HTTP: http://localhost:3000/mcp
 - REST API: http://localhost:3000/api/*
 - Health check: http://localhost:3000/health
-New MCP session initialized: session-k5j35xi94m

@@ -568,23 +568,7 @@ console.log('Starting MCP Server...');
 console.log('Environment:', process.env.NODE_ENV);
 console.log('Render:', !!process.env.RENDER);
 console.log('API Key configured:', !!REQUIRED_API_KEY);
-// Session management for Streamable HTTP
-const sessions = new Map();
-function generateSessionId() {
-    return 'session-' + Math.random().toString(36).substr(2, 16);
-}
-function cleanupExpiredSessions() {
-    const now = Date.now();
-    const timeout = 30 * 60 * 1000; // 30 minutes
-    for (const [sessionId, session] of sessions.entries()) {
-        if (now - session.lastActivity > timeout) {
-            console.log(`Cleaning up expired session: ${sessionId}`);
-            sessions.delete(sessionId);
-        }
-    }
-}
-// Clean up sessions every 5 minutes
-setInterval(cleanupExpiredSessions, 5 * 60 * 1000);
+// No session management needed - stateless MCP server
 // Health check state
 const healthState = {
     startTime: Date.now(),
@@ -612,9 +596,9 @@ function getDetailedHealthStatus() {
     const uptime = Math.floor((now - healthState.startTime) / 1000);
     // Check MCP server functionality
     const mcpHealthy = checkMcpCapabilities();
-    // Check sessions
-    const activeSessions = sessions.size;
-    const sessionIds = Array.from(sessions.keys());
+    // No sessions needed - stateless server
+    const activeSessions = 0;
+    const sessionIds = [];
     // Overall health determination
     const overall = mcpHealthy && healthState.isReady ? 'healthy' : 'unhealthy';
     return {
@@ -632,10 +616,10 @@ function getDetailedHealthStatus() {
                 status: !!REQUIRED_API_KEY ? 'healthy' : 'unhealthy',
                 configured: !!REQUIRED_API_KEY
             },
-            sessions: {
+            connection: {
                 status: 'healthy',
-                active_count: activeSessions,
-                session_ids: sessionIds.slice(0, 5) // Only show first 5 for brevity
+                type: 'stateless',
+                note: 'No session management required'
             },
             tools: {
                 status: 'healthy',
@@ -652,7 +636,6 @@ function getDetailedHealthStatus() {
 }
 // MCP Streamable HTTP handler
 async function handleMcpStreamableHttp(req, res) {
-    const sessionId = req.headers['mcp-session-id'];
     if (req.method === 'POST') {
         // Handle MCP command requests
         let body = '';
@@ -662,18 +645,8 @@ async function handleMcpStreamableHttp(req, res) {
         req.on('end', async () => {
             try {
                 const message = JSON.parse(body);
-                // Handle initialization
+                // Handle initialization - no session required
                 if (message.method === 'initialize') {
-                    const newSessionId = generateSessionId();
-                    const mcpServer = new McpServer({
-                        name: 'productivity-toolkit',
-                        version: '1.0.0',
-                    });
-                    registerToolsOnServer(mcpServer);
-                    sessions.set(newSessionId, {
-                        server: mcpServer,
-                        lastActivity: Date.now()
-                    });
                     // Return initialization response
                     const initResult = {
                         jsonrpc: '2.0',
@@ -692,24 +665,11 @@ async function handleMcpStreamableHttp(req, res) {
                             }
                         }
                     };
-                    res.setHeader('Mcp-Session-Id', newSessionId);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify(initResult));
-                    console.log(`New MCP session initialized: ${newSessionId}`);
+                    console.log('MCP initialization handled - no session required');
                     return;
                 }
-                // Handle other commands with session
-                if (!sessionId || !sessions.has(sessionId)) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        jsonrpc: '2.0',
-                        id: message.id,
-                        error: { code: -32000, message: 'Invalid or missing session ID' }
-                    }));
-                    return;
-                }
-                const session = sessions.get(sessionId);
-                session.lastActivity = Date.now();
                 // Handle tools/list request
                 if (message.method === 'tools/list') {
                     const tools = [
@@ -896,14 +856,7 @@ async function handleMcpStreamableHttp(req, res) {
         });
     }
     else if (req.method === 'GET') {
-        // Handle Server-Sent Events stream for announcements
-        if (!sessionId || !sessions.has(sessionId)) {
-            res.writeHead(400, { 'Content-Type': 'text/plain' });
-            res.end('Invalid or missing session ID');
-            return;
-        }
-        const session = sessions.get(sessionId);
-        session.lastActivity = Date.now();
+        // Handle Server-Sent Events stream - no session required
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
@@ -924,16 +877,9 @@ async function handleMcpStreamableHttp(req, res) {
         });
     }
     else if (req.method === 'DELETE') {
-        // Handle session termination
-        if (sessionId && sessions.has(sessionId)) {
-            sessions.delete(sessionId);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ status: 'session terminated' }));
-        }
-        else {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Invalid session ID' }));
-        }
+        // Handle connection termination - no session required
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'connection terminated' }));
     }
     else {
         res.writeHead(405, { 'Content-Type': 'text/plain' });
@@ -1045,7 +991,7 @@ if (process.env.RENDER || process.env.NODE_ENV === 'production' || process.env.M
                         resources: {}
                     },
                     transport: 'streamable_http',
-                    active_sessions: sessions.size,
+                    connection_type: 'stateless',
                     tools_available: 6,
                     timestamp: new Date().toISOString()
                 };
