@@ -2,7 +2,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import QRCode from 'qrcode';
-import { WebSocketServer } from 'ws';
 // API Key Authentication
 const REQUIRED_API_KEY = process.env.MCP_API_KEY;
 if (!REQUIRED_API_KEY) {
@@ -569,10 +568,226 @@ console.log('Starting MCP Server...');
 console.log('Environment:', process.env.NODE_ENV);
 console.log('Render:', !!process.env.RENDER);
 console.log('API Key configured:', !!REQUIRED_API_KEY);
+// Session management for Streamable HTTP
+const sessions = new Map();
+function generateSessionId() {
+    return 'session-' + Math.random().toString(36).substr(2, 16);
+}
+function cleanupExpiredSessions() {
+    const now = Date.now();
+    const timeout = 30 * 60 * 1000; // 30 minutes
+    for (const [sessionId, session] of sessions.entries()) {
+        if (now - session.lastActivity > timeout) {
+            console.log(`Cleaning up expired session: ${sessionId}`);
+            sessions.delete(sessionId);
+        }
+    }
+}
+// Clean up sessions every 5 minutes
+setInterval(cleanupExpiredSessions, 5 * 60 * 1000);
+// MCP Streamable HTTP handler
+async function handleMcpStreamableHttp(req, res) {
+    const sessionId = req.headers['mcp-session-id'];
+    if (req.method === 'POST') {
+        // Handle MCP command requests
+        let body = '';
+        req.on('data', (chunk) => {
+            body += chunk.toString();
+        });
+        req.on('end', async () => {
+            try {
+                const message = JSON.parse(body);
+                // Handle initialization
+                if (message.method === 'initialize') {
+                    const newSessionId = generateSessionId();
+                    const mcpServer = new McpServer({
+                        name: 'productivity-toolkit',
+                        version: '1.0.0',
+                    });
+                    registerToolsOnServer(mcpServer);
+                    sessions.set(newSessionId, {
+                        server: mcpServer,
+                        lastActivity: Date.now()
+                    });
+                    // Return initialization response
+                    const initResult = {
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            protocolVersion: '2024-11-05',
+                            capabilities: {
+                                tools: {},
+                            },
+                            serverInfo: {
+                                name: 'productivity-toolkit',
+                                version: '1.0.0'
+                            }
+                        }
+                    };
+                    res.setHeader('Mcp-Session-Id', newSessionId);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(initResult));
+                    return;
+                }
+                // Handle other commands with session
+                if (!sessionId || !sessions.has(sessionId)) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        error: { code: -32000, message: 'Invalid or missing session ID' }
+                    }));
+                    return;
+                }
+                const session = sessions.get(sessionId);
+                session.lastActivity = Date.now();
+                // Handle tools/list request
+                if (message.method === 'tools/list') {
+                    const tools = [
+                        {
+                            name: 'generate-password',
+                            description: 'Generate secure passwords with customizable options',
+                            inputSchema: {
+                                type: 'object',
+                                properties: {
+                                    apiKey: { type: 'string' },
+                                    length: { type: 'number', minimum: 8, maximum: 128, default: 16 },
+                                    includeNumbers: { type: 'boolean', default: true },
+                                    includeSymbols: { type: 'boolean', default: true },
+                                    includeUppercase: { type: 'boolean', default: true },
+                                    includeLowercase: { type: 'boolean', default: true },
+                                },
+                                required: ['apiKey']
+                            }
+                        },
+                        {
+                            name: 'generate-qr-code',
+                            description: 'Generate QR codes from text strings',
+                            inputSchema: {
+                                type: 'object',
+                                properties: {
+                                    apiKey: { type: 'string' },
+                                    text: { type: 'string' },
+                                    format: { type: 'string', enum: ['png', 'svg', 'terminal'], default: 'png' },
+                                    errorCorrectionLevel: { type: 'string', enum: ['L', 'M', 'Q', 'H'], default: 'M' },
+                                    width: { type: 'number', minimum: 100, maximum: 1000, default: 200 }
+                                },
+                                required: ['apiKey', 'text']
+                            }
+                        }
+                        // Add other tools as needed...
+                    ];
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: { tools }
+                    }));
+                    return;
+                }
+                // Handle tools/call request
+                if (message.method === 'tools/call') {
+                    const { name, arguments: args } = message.params;
+                    let result;
+                    switch (name) {
+                        case 'generate-password':
+                            result = await handlePasswordGeneration(args);
+                            break;
+                        case 'generate-qr-code':
+                            result = await handleQRCodeGeneration(args);
+                            break;
+                        case 'generate-qr-data':
+                            result = await handleQRDataGeneration(args);
+                            break;
+                        case 'generate-uuid':
+                            result = await handleUUIDGeneration(args);
+                            break;
+                        case 'generate-color-palette':
+                            result = await handleColorPaletteGeneration(args);
+                            break;
+                        case 'base64-convert':
+                            result = await handleBase64Conversion(args);
+                            break;
+                        default:
+                            throw new Error(`Unknown tool: ${name}`);
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+                        }
+                    }));
+                    return;
+                }
+                // Handle unknown methods
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    error: { code: -32601, message: 'Method not found' }
+                }));
+            }
+            catch (error) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: null,
+                    error: { code: -32700, message: 'Parse error' }
+                }));
+            }
+        });
+    }
+    else if (req.method === 'GET') {
+        // Handle Server-Sent Events stream for announcements
+        if (!sessionId || !sessions.has(sessionId)) {
+            res.writeHead(400, { 'Content-Type': 'text/plain' });
+            res.end('Invalid or missing session ID');
+            return;
+        }
+        const session = sessions.get(sessionId);
+        session.lastActivity = Date.now();
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        });
+        // Send initial connection event
+        res.write(`data: ${JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'notifications/initialized',
+            params: {}
+        })}\n\n`);
+        // Keep connection alive
+        const keepAliveInterval = setInterval(() => {
+            res.write(`: keepalive\n\n`);
+        }, 30000);
+        req.on('close', () => {
+            clearInterval(keepAliveInterval);
+        });
+    }
+    else if (req.method === 'DELETE') {
+        // Handle session termination
+        if (sessionId && sessions.has(sessionId)) {
+            sessions.delete(sessionId);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'session terminated' }));
+        }
+        else {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid session ID' }));
+        }
+    }
+    else {
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('Method not allowed');
+    }
+}
 // Check if running in web service mode (Render) or stdio mode (local MCP)
 if (process.env.RENDER || process.env.NODE_ENV === 'production') {
-    console.log('Starting HTTP server for health checks (MCP tools available via API)');
-    // HTTP server for health checks and direct tool access
+    console.log('Starting MCP server with Streamable HTTP transport');
+    // HTTP server for MCP Streamable HTTP transport + REST API
     const http = await import('http');
     const httpServer = http.createServer(async (req, res) => {
         // Enable CORS for external access
@@ -619,14 +834,17 @@ if (process.env.RENDER || process.env.NODE_ENV === 'production') {
                 body: parsedBody
             };
         };
+        const url = new URL(req.url || '/', `http://${req.headers.host}`);
         try {
             // Health check endpoint
-            if (req.url === '/health') {
+            if (url.pathname === '/health') {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
                     status: 'healthy',
                     server: 'productivity-toolkit-mcp',
                     version: '1.0.0',
+                    transports: ['streamable_http', 'rest_api'],
+                    mcp_endpoint: '/mcp',
                     tools: [
                         'generate-password',
                         'generate-qr-data',
@@ -641,16 +859,23 @@ if (process.env.RENDER || process.env.NODE_ENV === 'production') {
                         'POST /api/generate-qr-data': 'Generate QR data strings',
                         'POST /api/generate-uuid': 'Generate UUIDs',
                         'POST /api/generate-color-palette': 'Generate color palettes',
-                        'POST /api/base64-convert': 'Encode/decode Base64'
+                        'POST /api/base64-convert': 'Encode/decode Base64',
+                        'POST /mcp': 'MCP Streamable HTTP commands',
+                        'GET /mcp': 'MCP Server-Sent Events stream'
                     },
                     authentication: 'API key required via X-API-Key header, Authorization header, or apiKey in request body'
                 }));
                 return;
             }
             // Root endpoint
-            if (req.url === '/') {
+            if (url.pathname === '/') {
                 res.writeHead(200, { 'Content-Type': 'text/plain' });
-                res.end('Productivity Toolkit MCP Server - REST API and MCP Protocol available. Check /health for endpoints.');
+                res.end('Productivity Toolkit MCP Server\n\nSupports:\n- MCP Streamable HTTP at /mcp\n- REST API at /api/*\n- Health check at /health');
+                return;
+            }
+            // MCP Streamable HTTP endpoint
+            if (url.pathname === '/mcp') {
+                await handleMcpStreamableHttp(req, res);
                 return;
             }
             // API endpoint routing
@@ -702,74 +927,12 @@ if (process.env.RENDER || process.env.NODE_ENV === 'production') {
             res.end(JSON.stringify({ error: 'Internal server error' }));
         }
     });
-    // WebSocket server for MCP protocol
-    const wss = new WebSocketServer({ noServer: true });
-    // Handle WebSocket upgrade
-    httpServer.on('upgrade', (request, socket, head) => {
-        if (request.url === '/mcp') {
-            wss.handleUpgrade(request, socket, head, (ws) => {
-                console.log('New MCP WebSocket connection established');
-                // Create a custom transport for WebSocket
-                const transport = {
-                    async start() {
-                        return;
-                    },
-                    async send(message) {
-                        if (ws.readyState === ws.OPEN) {
-                            ws.send(JSON.stringify(message));
-                        }
-                    },
-                    onmessage: null,
-                    onerror: null,
-                    onclose: null,
-                };
-                // Handle incoming WebSocket messages
-                ws.on('message', (data) => {
-                    try {
-                        const message = JSON.parse(data.toString());
-                        if (transport.onmessage) {
-                            transport.onmessage(message);
-                        }
-                    }
-                    catch (error) {
-                        console.error('WebSocket message parse error:', error);
-                        if (transport.onerror) {
-                            transport.onerror(error);
-                        }
-                    }
-                });
-                ws.on('close', () => {
-                    console.log('MCP WebSocket connection closed');
-                    if (transport.onclose) {
-                        transport.onclose();
-                    }
-                });
-                ws.on('error', (error) => {
-                    console.error('WebSocket error:', error);
-                    if (transport.onerror) {
-                        transport.onerror(error);
-                    }
-                });
-                // Create new MCP server instance for this connection
-                const connectionServer = new McpServer({
-                    name: 'productivity-toolkit',
-                    version: '1.0.0',
-                });
-                // Register all tools on the connection server
-                registerToolsOnServer(connectionServer);
-                // Connect the transport
-                connectionServer.connect(transport);
-            });
-        }
-        else {
-            socket.destroy();
-        }
-    });
     const port = parseInt(process.env.PORT || '3000', 10);
     httpServer.listen(port, '0.0.0.0', () => {
-        console.log(`HTTP server running on port ${port}`);
-        console.log(`WebSocket MCP server available at ws://localhost:${port}/mcp`);
-        console.log(`REST API available at http://localhost:${port}/api/`);
+        console.log(`Server running on port ${port}`);
+        console.log(`- MCP Streamable HTTP: http://localhost:${port}/mcp`);
+        console.log(`- REST API: http://localhost:${port}/api/*`);
+        console.log(`- Health check: http://localhost:${port}/health`);
     });
     // Handle server errors
     httpServer.on('error', (err) => {
