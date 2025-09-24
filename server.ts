@@ -481,6 +481,196 @@ server.registerTool(
   }
 );
 
+// HTTP API handlers that mirror MCP tool functionality
+async function handlePasswordGeneration(params: any) {
+  const {
+    length = 16,
+    includeNumbers = true,
+    includeSymbols = true,
+    includeUppercase = true,
+    includeLowercase = true,
+  } = params;
+
+  let charset = '';
+  if (includeLowercase) charset += 'abcdefghijklmnopqrstuvwxyz';
+  if (includeUppercase) charset += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  if (includeNumbers) charset += '0123456789';
+  if (includeSymbols) charset += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+
+  if (charset === '') {
+    return { error: 'At least one character type must be selected' };
+  }
+
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+
+  return {
+    password,
+    strength: length >= 16 && includeNumbers && includeSymbols ? 'Strong' : length >= 12 ? 'Medium' : 'Weak'
+  };
+}
+
+async function handleQRCodeGeneration(params: any) {
+  const {
+    text,
+    format = 'png',
+    errorCorrectionLevel = 'M',
+    width = 200,
+  } = params;
+
+  if (!text) {
+    return { error: 'Text parameter is required' };
+  }
+
+  try {
+    if (format === 'png') {
+      const result = await QRCode.toDataURL(text, {
+        errorCorrectionLevel,
+        width,
+        margin: 1,
+        color: { dark: '#000000', light: '#FFFFFF' },
+      });
+      
+      const base64Data = result.split(',')[1];
+      return {
+        qrCode: base64Data,
+        format: 'base64',
+        mimeType: 'image/png',
+        text
+      };
+    } else if (format === 'svg') {
+      const result = await QRCode.toString(text, {
+        type: 'svg',
+        errorCorrectionLevel,
+        width,
+      });
+      return { qrCode: result, format: 'svg', text };
+    } else {
+      const result = await QRCode.toString(text, {
+        type: 'terminal',
+        errorCorrectionLevel,
+        width: Math.min(width / 10, 50),
+      });
+      return { qrCode: result, format: 'terminal', text };
+    }
+  } catch (error) {
+    return { error: `Failed to generate QR code: ${error instanceof Error ? error.message : 'Unknown error'}` };
+  }
+}
+
+async function handleQRDataGeneration(params: any) {
+  const { type, data } = params;
+
+  if (!type || !data) {
+    return { error: 'Type and data parameters are required' };
+  }
+
+  let qrString = '';
+  switch (type) {
+    case 'wifi':
+      if (!data.ssid) {
+        return { error: 'SSID is required for WiFi QR codes' };
+      }
+      qrString = `WIFI:T:${data.security || 'WPA'};S:${data.ssid};P:${data.password || ''};H:false;;`;
+      break;
+    case 'contact':
+      qrString = `BEGIN:VCARD\nVERSION:3.0\n`;
+      if (data.name) qrString += `FN:${data.name}\n`;
+      if (data.phone) qrString += `TEL:${data.phone}\n`;
+      if (data.email) qrString += `EMAIL:${data.email}\n`;
+      qrString += `END:VCARD`;
+      break;
+    case 'url':
+    case 'text':
+      qrString = data.content || '';
+      break;
+    default:
+      return { error: 'Invalid type. Supported: wifi, contact, url, text' };
+  }
+
+  return { qrData: qrString, type };
+}
+
+async function handleUUIDGeneration(params: any) {
+  const { count = 1 } = params;
+  const uuids = [];
+
+  for (let i = 0; i < Math.min(count, 10); i++) {
+    const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0;
+      const v = c == 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+    uuids.push(uuid);
+  }
+
+  return { uuids, count: uuids.length };
+}
+
+async function handleColorPaletteGeneration(params: any) {
+  const { baseColor, type = 'random', count = 5 } = params;
+  const colors = [];
+
+  if (type === 'random' || !baseColor) {
+    for (let i = 0; i < Math.min(count, 10); i++) {
+      const hex = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+      colors.push(hex);
+    }
+  } else {
+    const r = parseInt(baseColor.slice(1, 3), 16);
+    const g = parseInt(baseColor.slice(3, 5), 16);
+    const b = parseInt(baseColor.slice(5, 7), 16);
+
+    colors.push(baseColor);
+
+    for (let i = 1; i < Math.min(count, 10); i++) {
+      let newR, newG, newB;
+      if (type === 'monochromatic') {
+        const factor = 0.8 + i * 0.1;
+        newR = Math.min(255, Math.floor(r * factor));
+        newG = Math.min(255, Math.floor(g * factor));
+        newB = Math.min(255, Math.floor(b * factor));
+      } else {
+        newR = Math.min(255, Math.max(0, r + (Math.random() - 0.5) * 100));
+        newG = Math.min(255, Math.max(0, g + (Math.random() - 0.5) * 100));
+        newB = Math.min(255, Math.max(0, b + (Math.random() - 0.5) * 100));
+      }
+
+      const hex = '#' + Math.round(newR).toString(16).padStart(2, '0') + 
+                   Math.round(newG).toString(16).padStart(2, '0') + 
+                   Math.round(newB).toString(16).padStart(2, '0');
+      colors.push(hex);
+    }
+  }
+
+  return { colors, type, count: colors.length };
+}
+
+async function handleBase64Conversion(params: any) {
+  const { operation, text } = params;
+
+  if (!operation || !text) {
+    return { error: 'Operation and text parameters are required' };
+  }
+
+  try {
+    let result = '';
+    if (operation === 'encode') {
+      result = btoa(text);
+    } else if (operation === 'decode') {
+      result = atob(text);
+    } else {
+      return { error: 'Invalid operation. Use "encode" or "decode"' };
+    }
+
+    return { result, operation, originalText: text };
+  } catch (error) {
+    return { error: `Invalid ${operation === 'decode' ? 'Base64' : ''} input` };
+  }
+}
+
 console.log('Starting MCP Server...');
 console.log('Environment:', process.env.NODE_ENV);
 console.log('Render:', !!process.env.RENDER);
@@ -488,33 +678,163 @@ console.log('API Key configured:', !!REQUIRED_API_KEY);
 
 // Check if running in web service mode (Render) or stdio mode (local MCP)
 if (process.env.RENDER || process.env.NODE_ENV === 'production') {
-  console.log('Starting in HTTP mode for web deployment');
-  // HTTP server for Render deployment
+  console.log('Starting HTTP server for health checks (MCP tools available via API)');
+  
+  // HTTP server for health checks and direct tool access
   const http = await import('http');
   
-  const httpServer = http.createServer((req, res) => {
-    if (req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ 
-        status: 'healthy', 
-        server: 'productivity-toolkit-mcp',
-        tools: ['generate-password', 'generate-qr-data', 'base64-convert', 'generate-uuid', 'generate-color-palette', 'generate-qr-code']
-      }));
-    } else {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end('MCP Server is running. This is a Model Context Protocol server, not a web API.');
+  const httpServer = http.createServer(async (req, res) => {
+    // Enable CORS for external access
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
+    
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+    
+    // Helper function to get request body
+    const getRequestBody = (): Promise<string> => {
+      return new Promise((resolve) => {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk.toString();
+        });
+        req.on('end', () => {
+          resolve(body);
+        });
+      });
+    };
+    
+    // Helper function to validate API key from headers or body
+    const validateRequest = async (): Promise<{ isValid: boolean; apiKey?: string; body?: any }> => {
+      const headerApiKey = req.headers['x-api-key'] as string;
+      const authHeader = req.headers['authorization'];
+      let bodyApiKey;
+      let parsedBody;
+      
+      if (req.method === 'POST') {
+        try {
+          const bodyStr = await getRequestBody();
+          parsedBody = JSON.parse(bodyStr);
+          bodyApiKey = parsedBody.apiKey;
+        } catch {
+          // Invalid JSON or no body
+        }
+      }
+      
+      const apiKey = headerApiKey || (authHeader?.replace('Bearer ', '')) || bodyApiKey;
+      return {
+        isValid: validateApiKey(apiKey),
+        apiKey,
+        body: parsedBody
+      };
+    };
+    
+    try {
+      // Health check endpoint
+      if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+          status: 'healthy', 
+          server: 'productivity-toolkit-mcp',
+          version: '1.0.0',
+          tools: [
+            'generate-password',
+            'generate-qr-data', 
+            'base64-convert',
+            'generate-uuid',
+            'generate-color-palette',
+            'generate-qr-code'
+          ],
+          endpoints: {
+            'POST /api/generate-password': 'Generate secure passwords',
+            'POST /api/generate-qr-code': 'Generate QR codes',
+            'POST /api/generate-qr-data': 'Generate QR data strings',
+            'POST /api/generate-uuid': 'Generate UUIDs',
+            'POST /api/generate-color-palette': 'Generate color palettes',
+            'POST /api/base64-convert': 'Encode/decode Base64'
+          },
+          authentication: 'API key required via X-API-Key header, Authorization header, or apiKey in request body'
+        }));
+        return;
+      }
+      
+      // Root endpoint
+      if (req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Productivity Toolkit MCP Server - REST API and MCP Protocol available. Check /health for endpoints.');
+        return;
+      }
+      
+      // API endpoint routing
+      if (req.url?.startsWith('/api/') && req.method === 'POST') {
+        const { isValid, body } = await validateRequest();
+        
+        if (!isValid) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid or missing API key' }));
+          return;
+        }
+        
+        // Route to specific tool handlers
+        const endpoint = req.url.replace('/api/', '');
+        let result;
+        
+        switch (endpoint) {
+          case 'generate-password':
+            result = await handlePasswordGeneration(body || {});
+            break;
+          case 'generate-qr-code':
+            result = await handleQRCodeGeneration(body || {});
+            break;
+          case 'generate-qr-data':
+            result = await handleQRDataGeneration(body || {});
+            break;
+          case 'generate-uuid':
+            result = await handleUUIDGeneration(body || {});
+            break;
+          case 'generate-color-palette':
+            result = await handleColorPaletteGeneration(body || {});
+            break;
+          case 'base64-convert':
+            result = await handleBase64Conversion(body || {});
+            break;
+          default:
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Endpoint not found' }));
+            return;
+        }
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+        return;
+      }
+      
+      // 404 for all other routes
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+      
+    } catch (error) {
+      console.error('HTTP request error:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
     }
   });
   
   const port = parseInt(process.env.PORT || '3000', 10);
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`HTTP server running on port ${port} for health checks`);
+    console.log(`MCP server ready - but MCP protocol only available for local stdio connections`);
   });
   
   // Handle server errors
   httpServer.on('error', (err) => {
     console.error('HTTP server error:', err);
   });
+  
 } else {
   console.log('Starting in MCP stdio mode for local development');
   // Start receiving messages on stdin and sending messages on stdout (local MCP mode)

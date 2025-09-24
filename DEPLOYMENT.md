@@ -105,25 +105,43 @@ The deployment is successful if:
 | `NODE_ENV` | Node.js environment | `development` |
 | `PORT` | Server port (Render manages this) | `10000` |
 
-## Using Your Deployed MCP Server
+## Using Your Deployed Server
 
-Once deployed, you can connect to your MCP server using:
+Your server supports both MCP protocol (local) and REST API (remote):
 
-### Server URL
+### REST API Endpoints (for Inkeep, external clients)
+Base URL: `https://your-service-name.onrender.com`
+
+**Authentication:** Include API key via:
+- Header: `X-API-Key: your_api_key`
+- Header: `Authorization: Bearer your_api_key`  
+- Body: `{"apiKey": "your_api_key", ...}`
+
+**Available Endpoints:**
+- `POST /api/generate-password` - Generate secure passwords
+- `POST /api/generate-qr-code` - Generate QR codes (returns base64 image)
+- `POST /api/generate-qr-data` - Create QR code data strings
+- `POST /api/generate-uuid` - Generate UUIDs
+- `POST /api/generate-color-palette` - Create color palettes
+- `POST /api/base64-convert` - Encode/decode Base64
+
+**Example Usage:**
+```bash
+# Generate password
+curl -X POST https://your-service-name.onrender.com/api/generate-password \
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"length": 16, "includeSymbols": true}'
+
+# Generate QR code
+curl -X POST https://your-service-name.onrender.com/api/generate-qr-code \
+  -H "X-API-Key: your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "https://example.com", "format": "png"}'
 ```
-https://your-service-name.onrender.com
-```
 
-### Authentication
-All tool calls require the `apiKey` parameter with your generated API key.
-
-### Available Tools
-- `generate-password` - Generate secure passwords
-- `generate-qr-data` - Create QR code data strings
-- `base64-convert` - Encode/decode Base64
-- `generate-uuid` - Generate UUIDs
-- `generate-color-palette` - Create color palettes
-- `generate-qr-code` - Generate actual QR codes
+### MCP Protocol (for Claude Desktop, local clients)
+The server also supports standard MCP protocol via stdio for local connections.
 
 ## Troubleshooting
 
