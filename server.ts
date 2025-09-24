@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import QRCode from 'qrcode';
+import { WebSocketServer } from 'ws';
 
 // API Key Authentication
 const REQUIRED_API_KEY = process.env.MCP_API_KEY;
@@ -17,11 +18,8 @@ function validateApiKey(apiKey?: string): boolean {
   return apiKey === REQUIRED_API_KEY;
 }
 
-// Create an MCP server
-const server = new McpServer({
-  name: 'productivity-toolkit',
-  version: '1.0.0',
-});
+// Function to register all tools on a server instance
+function registerToolsOnServer(server: McpServer) {
 
 // Password Generator Tool
 server.registerTool(
@@ -480,6 +478,16 @@ server.registerTool(
     }
   }
 );
+}
+
+// Create main MCP server instance
+const server = new McpServer({
+  name: 'productivity-toolkit',
+  version: '1.0.0',
+});
+
+// Register tools on main server
+registerToolsOnServer(server);
 
 // HTTP API handlers that mirror MCP tool functionality
 async function handlePasswordGeneration(params: any) {
@@ -824,10 +832,83 @@ if (process.env.RENDER || process.env.NODE_ENV === 'production') {
     }
   });
   
+  // WebSocket server for MCP protocol
+  const wss = new WebSocketServer({ noServer: true });
+  
+  // Handle WebSocket upgrade
+  httpServer.on('upgrade', (request, socket, head) => {
+    if (request.url === '/mcp') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        console.log('New MCP WebSocket connection established');
+        
+        // Create a custom transport for WebSocket
+        const transport = {
+          async start() {
+            return;
+          },
+          
+          async send(message: any) {
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify(message));
+            }
+          },
+          
+          onmessage: null as ((message: any) => void) | null,
+          onerror: null as ((error: Error) => void) | null,
+          onclose: null as (() => void) | null,
+        };
+        
+        // Handle incoming WebSocket messages
+        ws.on('message', (data) => {
+          try {
+            const message = JSON.parse(data.toString());
+            if (transport.onmessage) {
+              transport.onmessage(message);
+            }
+          } catch (error) {
+            console.error('WebSocket message parse error:', error);
+            if (transport.onerror) {
+              transport.onerror(error as Error);
+            }
+          }
+        });
+        
+        ws.on('close', () => {
+          console.log('MCP WebSocket connection closed');
+          if (transport.onclose) {
+            transport.onclose();
+          }
+        });
+        
+        ws.on('error', (error) => {
+          console.error('WebSocket error:', error);
+          if (transport.onerror) {
+            transport.onerror(error);
+          }
+        });
+        
+        // Create new MCP server instance for this connection
+        const connectionServer = new McpServer({
+          name: 'productivity-toolkit',
+          version: '1.0.0',
+        });
+        
+        // Register all tools on the connection server
+        registerToolsOnServer(connectionServer);
+        
+        // Connect the transport
+        connectionServer.connect(transport as any);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+  
   const port = parseInt(process.env.PORT || '3000', 10);
   httpServer.listen(port, '0.0.0.0', () => {
-    console.log(`HTTP server running on port ${port} for health checks`);
-    console.log(`MCP server ready - but MCP protocol only available for local stdio connections`);
+    console.log(`HTTP server running on port ${port}`);
+    console.log(`WebSocket MCP server available at ws://localhost:${port}/mcp`);
+    console.log(`REST API available at http://localhost:${port}/api/`);
   });
   
   // Handle server errors
