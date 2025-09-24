@@ -1,0 +1,14 @@
+
+> ice-cream-mcp-server@1.0.0 start
+> node server.js
+
+Starting MCP Server...
+Environment: undefined
+Render: false
+API Key configured: true
+Starting MCP server with Streamable HTTP transport
+Server running on port 3000
+- MCP Streamable HTTP: http://localhost:3000/mcp
+- REST API: http://localhost:3000/api/*
+- Health check: http://localhost:3000/health
+New MCP session initialized: session-k5j35xi94m

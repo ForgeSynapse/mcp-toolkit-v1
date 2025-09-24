@@ -585,6 +585,71 @@ function cleanupExpiredSessions() {
 }
 // Clean up sessions every 5 minutes
 setInterval(cleanupExpiredSessions, 5 * 60 * 1000);
+// Health check state
+const healthState = {
+    startTime: Date.now(),
+    isReady: true,
+    lastCheck: Date.now(),
+    version: '1.0.0'
+};
+// MCP Health Check Functions
+function checkMcpCapabilities() {
+    try {
+        // Test if we can create a new MCP server instance
+        const testServer = new McpServer({
+            name: 'test-server',
+            version: '1.0.0'
+        });
+        return testServer !== null;
+    }
+    catch (error) {
+        console.error('MCP capabilities check failed:', error);
+        return false;
+    }
+}
+function getDetailedHealthStatus() {
+    const now = Date.now();
+    const uptime = Math.floor((now - healthState.startTime) / 1000);
+    // Check MCP server functionality
+    const mcpHealthy = checkMcpCapabilities();
+    // Check sessions
+    const activeSessions = sessions.size;
+    const sessionIds = Array.from(sessions.keys());
+    // Overall health determination
+    const overall = mcpHealthy && healthState.isReady ? 'healthy' : 'unhealthy';
+    return {
+        status: overall,
+        timestamp: new Date().toISOString(),
+        service: 'productivity-toolkit-mcp-server',
+        version: healthState.version,
+        uptime_seconds: uptime,
+        checks: {
+            mcp_server: {
+                status: mcpHealthy ? 'healthy' : 'unhealthy',
+                capabilities: ['tools', 'logging', 'prompts', 'resources']
+            },
+            api_key: {
+                status: !!REQUIRED_API_KEY ? 'healthy' : 'unhealthy',
+                configured: !!REQUIRED_API_KEY
+            },
+            sessions: {
+                status: 'healthy',
+                active_count: activeSessions,
+                session_ids: sessionIds.slice(0, 5) // Only show first 5 for brevity
+            },
+            tools: {
+                status: 'healthy',
+                count: 6,
+                names: ['generate-password', 'generate-qr-code', 'generate-qr-data', 'generate-uuid', 'generate-color-palette', 'base64-convert']
+            }
+        },
+        transport: {
+            stdio: 'available',
+            streamable_http: 'available',
+            sse: 'available'
+        }
+    };
+}
 // MCP Streamable HTTP handler
 async function handleMcpStreamableHttp(req, res) {
     const sessionId = req.headers['mcp-session-id'];
@@ -617,6 +682,9 @@ async function handleMcpStreamableHttp(req, res) {
                             protocolVersion: '2024-11-05',
                             capabilities: {
                                 tools: {},
+                                logging: {},
+                                prompts: {},
+                                resources: {}
                             },
                             serverInfo: {
                                 name: 'productivity-toolkit',
@@ -627,6 +695,7 @@ async function handleMcpStreamableHttp(req, res) {
                     res.setHeader('Mcp-Session-Id', newSessionId);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify(initResult));
+                    console.log(`New MCP session initialized: ${newSessionId}`);
                     return;
                 }
                 // Handle other commands with session
@@ -674,8 +743,59 @@ async function handleMcpStreamableHttp(req, res) {
                                 },
                                 required: ['apiKey', 'text']
                             }
+                        },
+                        {
+                            name: 'generate-qr-data',
+                            description: 'Generate QR code data strings for WiFi, contacts, etc.',
+                            inputSchema: {
+                                type: 'object',
+                                properties: {
+                                    apiKey: { type: 'string' },
+                                    type: { type: 'string', enum: ['wifi', 'contact', 'url', 'text'] },
+                                    data: { type: 'object' }
+                                },
+                                required: ['apiKey', 'type', 'data']
+                            }
+                        },
+                        {
+                            name: 'generate-uuid',
+                            description: 'Generate UUIDs (v4) for unique identifiers',
+                            inputSchema: {
+                                type: 'object',
+                                properties: {
+                                    apiKey: { type: 'string' },
+                                    count: { type: 'number', minimum: 1, maximum: 10, default: 1 }
+                                },
+                                required: ['apiKey']
+                            }
+                        },
+                        {
+                            name: 'generate-color-palette',
+                            description: 'Generate color palettes for design projects',
+                            inputSchema: {
+                                type: 'object',
+                                properties: {
+                                    apiKey: { type: 'string' },
+                                    baseColor: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$' },
+                                    type: { type: 'string', enum: ['monochromatic', 'complementary', 'triadic', 'random'], default: 'random' },
+                                    count: { type: 'number', minimum: 3, maximum: 10, default: 5 }
+                                },
+                                required: ['apiKey']
+                            }
+                        },
+                        {
+                            name: 'base64-convert',
+                            description: 'Encode or decode text using Base64',
+                            inputSchema: {
+                                type: 'object',
+                                properties: {
+                                    apiKey: { type: 'string' },
+                                    operation: { type: 'string', enum: ['encode', 'decode'] },
+                                    text: { type: 'string' }
+                                },
+                                required: ['apiKey', 'operation', 'text']
+                            }
                         }
-                        // Add other tools as needed...
                     ];
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({
@@ -688,37 +808,73 @@ async function handleMcpStreamableHttp(req, res) {
                 // Handle tools/call request
                 if (message.method === 'tools/call') {
                     const { name, arguments: args } = message.params;
-                    let result;
-                    switch (name) {
-                        case 'generate-password':
-                            result = await handlePasswordGeneration(args);
-                            break;
-                        case 'generate-qr-code':
-                            result = await handleQRCodeGeneration(args);
-                            break;
-                        case 'generate-qr-data':
-                            result = await handleQRDataGeneration(args);
-                            break;
-                        case 'generate-uuid':
-                            result = await handleUUIDGeneration(args);
-                            break;
-                        case 'generate-color-palette':
-                            result = await handleColorPaletteGeneration(args);
-                            break;
-                        case 'base64-convert':
-                            result = await handleBase64Conversion(args);
-                            break;
-                        default:
-                            throw new Error(`Unknown tool: ${name}`);
+                    // Validate API key (could be in args or headers)
+                    const apiKeyFromArgs = args.apiKey;
+                    const apiKeyFromHeader = req.headers['authorization']?.replace('Bearer ', '') ||
+                        req.headers['x-api-key'];
+                    const apiKey = apiKeyFromArgs || apiKeyFromHeader;
+                    if (!validateApiKey(apiKey)) {
+                        res.writeHead(401, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: message.id,
+                            error: { code: -32000, message: 'Invalid or missing API key' }
+                        }));
+                        return;
                     }
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        jsonrpc: '2.0',
-                        id: message.id,
-                        result: {
-                            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+                    // Ensure args has apiKey for backwards compatibility
+                    const argsWithApiKey = { ...args, apiKey };
+                    let result;
+                    try {
+                        switch (name) {
+                            case 'generate-password':
+                                result = await handlePasswordGeneration(argsWithApiKey);
+                                break;
+                            case 'generate-qr-code':
+                                result = await handleQRCodeGeneration(argsWithApiKey);
+                                break;
+                            case 'generate-qr-data':
+                                result = await handleQRDataGeneration(argsWithApiKey);
+                                break;
+                            case 'generate-uuid':
+                                result = await handleUUIDGeneration(argsWithApiKey);
+                                break;
+                            case 'generate-color-palette':
+                                result = await handleColorPaletteGeneration(argsWithApiKey);
+                                break;
+                            case 'base64-convert':
+                                result = await handleBase64Conversion(argsWithApiKey);
+                                break;
+                            default:
+                                throw new Error(`Unknown tool: ${name}`);
                         }
-                    }));
+                        // Handle errors in results
+                        if (result && result.error) {
+                            res.writeHead(400, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({
+                                jsonrpc: '2.0',
+                                id: message.id,
+                                error: { code: -32000, message: result.error }
+                            }));
+                            return;
+                        }
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: message.id,
+                            result: {
+                                content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+                            }
+                        }));
+                    }
+                    catch (error) {
+                        res.writeHead(500, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: message.id,
+                            error: { code: -32603, message: `Internal error: ${error instanceof Error ? error.message : 'Unknown error'}` }
+                        }));
+                    }
                     return;
                 }
                 // Handle unknown methods
@@ -785,7 +941,7 @@ async function handleMcpStreamableHttp(req, res) {
     }
 }
 // Check if running in web service mode (Render) or stdio mode (local MCP)
-if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+if (process.env.RENDER || process.env.NODE_ENV === 'production' || process.env.MCP_HTTP_MODE === 'true') {
     console.log('Starting MCP server with Streamable HTTP transport');
     // HTTP server for MCP Streamable HTTP transport + REST API
     const http = await import('http');
@@ -836,12 +992,72 @@ if (process.env.RENDER || process.env.NODE_ENV === 'production') {
         };
         const url = new URL(req.url || '/', `http://${req.headers.host}`);
         try {
-            // Health check endpoint
-            if (url.pathname === '/health') {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
+            // Health check endpoints
+            if (url.pathname === '/health' || url.pathname === '/health/live') {
+                const basicHealth = {
                     status: 'healthy',
                     server: 'productivity-toolkit-mcp',
+                    version: '1.0.0',
+                    timestamp: new Date().toISOString(),
+                    uptime: Math.floor((Date.now() - healthState.startTime) / 1000)
+                };
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(basicHealth));
+                return;
+            }
+            // Readiness check endpoint
+            if (url.pathname === '/health/ready') {
+                const mcpReady = checkMcpCapabilities();
+                const apiKeyReady = !!REQUIRED_API_KEY;
+                const ready = mcpReady && apiKeyReady && healthState.isReady;
+                res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    ready,
+                    checks: {
+                        mcp: mcpReady,
+                        api_key: apiKeyReady,
+                        server_ready: healthState.isReady
+                    },
+                    timestamp: new Date().toISOString()
+                }));
+                return;
+            }
+            // Detailed health status endpoint
+            if (url.pathname === '/health/detailed') {
+                const detailedHealth = getDetailedHealthStatus();
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(detailedHealth));
+                return;
+            }
+            // MCP-specific health check endpoint
+            if (url.pathname === '/mcp/health') {
+                const mcpHealth = {
+                    status: checkMcpCapabilities() ? 'healthy' : 'unhealthy',
+                    protocol_version: '2024-11-05',
+                    server_info: {
+                        name: 'productivity-toolkit',
+                        version: '1.0.0'
+                    },
+                    capabilities: {
+                        tools: {},
+                        logging: {},
+                        prompts: {},
+                        resources: {}
+                    },
+                    transport: 'streamable_http',
+                    active_sessions: sessions.size,
+                    tools_available: 6,
+                    timestamp: new Date().toISOString()
+                };
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(mcpHealth));
+                return;
+            }
+            // Service info endpoint
+            if (url.pathname === '/info') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    service: 'productivity-toolkit-mcp',
                     version: '1.0.0',
                     transports: ['streamable_http', 'rest_api'],
                     mcp_endpoint: '/mcp',
